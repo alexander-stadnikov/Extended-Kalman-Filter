@@ -31,6 +31,9 @@ class FusionEKF {
    */
   KalmanFilter ekf_;
 
+  bool use_laser_{true};
+  bool use_radar_{true};
+
  private:
   // check whether the tracking toolbox was initialized or not (first measurement)
   bool is_initialized_;
