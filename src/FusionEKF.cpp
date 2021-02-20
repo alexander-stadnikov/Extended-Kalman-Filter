@@ -11,8 +11,6 @@ using std::vector;
 
 FusionEKF::FusionEKF() {
   is_initialized_ = false;
-  use_laser_ = true;
-  use_radar_ = true;
 
   previous_timestamp_ = 0;
 
@@ -30,7 +28,7 @@ FusionEKF::FusionEKF() {
   R_radar_ << 0.09, 0, 0,
               0, 0.0009, 0,
               0, 0, 0.09;
-  
+
   H_laser_ << 1, 0, 0, 0,
               0, 1, 0, 0;
 
@@ -44,90 +42,80 @@ FusionEKF::FusionEKF() {
 FusionEKF::~FusionEKF() {}
 
 void FusionEKF::ProcessMeasurement(const MeasurementPackage &measurement_pack) {
+  /*****************************************************************************
+   *  Initialization
+   ****************************************************************************/
   if (!is_initialized_) {
     ekf_.x_ = VectorXd(4);
     ekf_.x_ << 1, 1, 1, 1;
 
     if (measurement_pack.sensor_type_ == MeasurementPackage::RADAR) {
-      float rho = measurement_pack.raw_measurements_[0];
-      float phi = measurement_pack.raw_measurements_[1];
-      float rho_dot = measurement_pack.raw_measurements_[2];
-
-      while (phi > M_PI) {
-        phi -= 2.0 * M_PI;
+      double rho = measurement_pack.raw_measurements_[0];
+  	  double phi = measurement_pack.raw_measurements_[1];
+  	  double rho_dot = measurement_pack.raw_measurements_[2];
+  	  double x = rho * cos(phi);
+      if (x < 0.0001) {
+        x = 0.0001;
       }
-      while (phi < -M_PI) {
-        phi += 2.0 * M_PI;
+  	  double y = rho * sin(phi);
+      if (y < 0.0001) {
+        y = 0.0001;
       }
-
-      float x  = rho * cos(phi);
-      float y  = rho * sin(phi);
-      float vx = rho_dot * cos(phi);
-      float vy = rho_dot * sin(phi);
-
-      ekf_.x_ << x, y, vx, vy;
-    } else if (measurement_pack.sensor_type_ == MeasurementPackage::LASER) {
-      float x = measurement_pack.raw_measurements_[0];
-      float y = measurement_pack.raw_measurements_[1];
-      ekf_.x_ << x, y, 0, 0;
+  	  double vx = rho_dot * cos(phi);
+  	  double vy = rho_dot * sin(phi);
+      ekf_.x_ << x, y, vx , vy;
+    }
+    else if (measurement_pack.sensor_type_ == MeasurementPackage::LASER) {
+      ekf_.x_ << measurement_pack.raw_measurements_[0], measurement_pack.raw_measurements_[1], 0, 0;
     }
 
-    const float threshold = 0.0001;
-    if (fabs(ekf_.x_(0)) < threshold && fabs(ekf_.x_(1)) < threshold) {
-      ekf_.x_(0) = threshold;
-      ekf_.x_(1) = threshold;
-    }
-
-    previous_timestamp_ = measurement_pack.timestamp_;
+    previous_timestamp_ = measurement_pack.timestamp_ ;
     is_initialized_ = true;
     return;
   }
 
-  float dt = (measurement_pack.timestamp_ - previous_timestamp_);
-  dt /= 1000000.0;
+  /*****************************************************************************
+   *  Prediction
+   ****************************************************************************/
+
+  double dt = (measurement_pack.timestamp_ - previous_timestamp_) / 1000000.0;
   previous_timestamp_ = measurement_pack.timestamp_;
 
   ekf_.F_ = MatrixXd(4, 4);
-  ekf_.F_ << 1,  0,  dt, 0,
-             0,  1,  0,  dt,
-             0,  0,  1,  0,
-             0,  0,  0,  1;
-  float noise_ax = 9.0;
-  float noise_ay = 9.0;
-  float dt_2   = dt * dt;
-  float dt_3   = dt_2 * dt;
-  float dt_4   = dt_3 * dt;
-  float dt_4_4 = dt_4 / 4;
-  float dt_3_2 = dt_3 / 2;
+  ekf_.F_ << 1, 0, dt, 0,
+             0, 1, 0, dt,
+             0, 0, 1, 0,
+             0, 0, 0, 1;
 
+  double noise_ax = 9.0;
+  double noise_ay = 9.0;
+
+  double dt_2 = dt * dt;
+  double dt_3 = dt_2 * dt;
+  double dt_4 = dt_3 * dt;
+  double dt_4_4 = dt_4 / 4;
+  double dt_3_2 = dt_3 / 2;
   ekf_.Q_ = MatrixXd(4, 4);
-  ekf_.Q_ << dt_4_4*noise_ax, 0,               dt_3_2*noise_ax, 0,
-             0,               dt_4_4*noise_ay, 0,               dt_3_2*noise_ay,
-             dt_3_2*noise_ax, 0,               dt_2*noise_ax,   0,
-             0,               dt_3_2*noise_ay, 0,               dt_2*noise_ay;
-
+  ekf_.Q_ << dt_4_4 * noise_ax, 0, dt_3_2 * noise_ax, 0,
+	         0, dt_4_4 * noise_ay, 0, dt_3_2 * noise_ay,
+	         dt_3_2 * noise_ax, 0, dt_2 * noise_ax, 0,
+ 	         0, dt_3_2 * noise_ay, 0, dt_2 * noise_ay;
   ekf_.Predict();
 
   /*****************************************************************************
    *  Update
    ****************************************************************************/
 
-  /**
-     * Use the sensor type to perform the update step.
-     * Update the state and covariance matrices.
-   */
-
-  if (measurement_pack.sensor_type_ == MeasurementPackage::RADAR && use_radar_) {
+  if (measurement_pack.sensor_type_ == MeasurementPackage::RADAR) {
     ekf_.H_ = tools.CalculateJacobian(ekf_.x_);
-    ekf_.R_ = R_radar_;
-    ekf_.UpdateEKF(measurement_pack.raw_measurements_);
-  } else if (measurement_pack.sensor_type_ == MeasurementPackage::LASER && use_laser_) {
+  	ekf_.R_ = R_radar_;
+  	ekf_.UpdateEKF(measurement_pack.raw_measurements_);
+  } else {
     ekf_.H_ = H_laser_;
-    ekf_.R_ = R_laser_;
-    ekf_.Update(measurement_pack.raw_measurements_);
+  	ekf_.R_ = R_laser_;
+  	ekf_.Update(measurement_pack.raw_measurements_);
   }
 
-  // print the output
   cout << "x_ = " << ekf_.x_ << endl;
   cout << "P_ = " << ekf_.P_ << endl;
 }
