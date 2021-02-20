@@ -42,5 +42,5 @@ Achieved accuracy:
 
 Examples:
 
-![alt](./ds1_all.png)
-![alt](./ds2_all.png)
+![alt](ds1_all.png)
+![alt](ds2_all.png)
